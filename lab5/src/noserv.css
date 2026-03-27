@@ -17,3 +17,6 @@ div.info  {position:absolute;right:0;top:0;padding:5px 18px;}
 div.other {color: #0060A0;float:left;padding:5px 18px;background:#FAFAFA;border-radius:8px;}
 div.me    {color: #EB088C;float:right;padding:5px 18px;background:#F4FAFF;border-radius:8px;}
 span.who  {display: inline-block;margin-right:5px;width:30px;text-align:center;display:none;}
+video {width:100%;max-height:150px;background:#000;display:block;margin:3px 0;background-size:contain;background-position:center;background-repeat:no-repeat}
+#snap-btn {margin:3px 0}
+#snap-img {margin:3px 0;border:1px solid #ccc}
