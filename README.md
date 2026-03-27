@@ -34,3 +34,7 @@ Option B:
 The general requirements for option A & B.
   - Test application on at least two browsers and specify in README.md which version and browser it was.
   - To pass this lab, you have to fully complete an option.  
+
+# Browser tests
+  - Tested on Brave v1.88.132 (Mar 14, 2026), Fedora 43 (Linux)
+  - Tested on Firefox 148.0.2, Fedora 43 (Linux)
