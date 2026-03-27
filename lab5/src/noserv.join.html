@@ -7,7 +7,15 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 </head>
 <body>
-<h2>  JOIN WebRTC channel  <span id="status"> init </span> </h2>
+<h2> JOIN WebRTC channel <span id="status"> init </span> </h2>
+
+<h3>Local Camera</h3>
+<video id="local-video" autoplay muted playsinline></video>
+<h3>Remote Camera</h3>
+<canvas id="remote-video" style="width:100%;max-height:150px;background:#000;display:block;margin:3px 0"></canvas><button id="snap-btn" disabled>Capture Snapshot</button>
+<canvas id="snap-canvas" style="display:none"></canvas>
+<img id="snap-img" style="max-width:100%;display:none">
+
 <h3> 2.GET Offer's SDP</h3>
 <textarea id="creater-sdp" placeholder="HERE COPY & PASTE [1.CREATE Offer's SDP]"></textarea>
 <h3> 3.CREATE Participant'S SDP <button id="create">CREATE</button> </h3>
@@ -20,35 +28,116 @@
   <div id="ct"><input id="msg" disabled><button id="send" disabled>send</button></div>
 </div>
 <script>
-//var server       = { urls: "stun:stun.l.google.com:19302" };
-var sdpConstraints = { optional: [{RtpDataChannels: true}]  };
 var pc = new RTCPeerConnection(null);
 var dc;
+var localStream;
 
-pc.ondatachannel  = function(e) {dc = e.channel; dcInit(dc)};
+// Get camera and add tracks to peer connection
+if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+  navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    .then(function(stream) {
+      localStream = stream;
+      document.getElementById('local-video').srcObject = stream;
+      stream.getTracks().forEach(function(track) {
+        pc.addTrack(track, stream);
+      });
+    })
+    .catch(function(err) {
+      console.error('Camera error:', err);
+    });
+} else {
+  console.warn('Camera not available (requires HTTPS or localhost)');
+}
+
+// Display remote video stream
+pc.ontrack = function(e) {
+  document.getElementById('remote-video').srcObject = e.streams[0];
+};
+
+pc.ondatachannel = function(e) { dc = e.channel; dcInit(dc); };
 pc.onicecandidate = function(e) {
   if (e.candidate) return;
   $("#joiner-sdp").val(JSON.stringify(pc.localDescription));
 };
 pc.oniceconnectionstatechange = function(e) {
-  var state = pc.iceConnectionState
+  var state = pc.iceConnectionState;
   $('#status').html(state);
-  if (state == "connected") $("#msg, #send").attr("disabled", false);
+  if (state == "connected") {
+    $("#msg, #send, #snap-btn").attr("disabled", false);
+    if (!dc || dc.readyState !== 'open') {
+      startCameraShare();
+    }
+  }
+  if (state == "disconnected" || state == "failed" || state == "closed") {
+    stopCameraShare();
+  }
 };
 
 function dcInit(dc) {
-  dc.onopen    = function()  {$("textarea").attr("disabled",true);addMSG("CONNECTED!", "info")};
-  dc.onmessage = function(e) {if (e.data) addMSG(e.data, "other");}
+  dc.onopen    = function() { $("textarea").attr("disabled", true); addMSG("CONNECTED!", "info"); startCameraShare(); };
+  dc.onmessage = function(e) {
+    try {
+      var msg = JSON.parse(e.data);
+      if (msg.type === 'camera-frame' && msg.data) {
+        var img = new Image();
+        img.onload = function() {
+          var canvas = document.getElementById('remote-video');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+        };
+        img.src = msg.data;
+      } else if (e.data) {
+        addMSG(e.data, "other");
+      }
+    } catch(err) {
+      if (e.data) addMSG(e.data, "other");
+    }
+  };
 }
 
 function createAnswerSDP() {
   var offerDesc = new RTCSessionDescription(JSON.parse($("#creater-sdp").val()));
-  pc.setRemoteDescription(offerDesc)
-  pc.createAnswer(function (answerDesc) {
-    pc.setLocalDescription(answerDesc)
-  }, function () {console.warn("Couldn't create offer")},
-  sdpConstraints);
-};
+  pc.setRemoteDescription(offerDesc).then(function() {
+    return pc.createAnswer();
+  }).then(function(answerDesc) {
+    pc.setLocalDescription(answerDesc);
+  }).catch(function(err) {
+    console.warn("Couldn't create answer:", err);
+  });
+}
+
+// Function to capture local camera frame and send as base64
+function sendCameraFrame() {
+  if (!localStream) return;
+  var video = document.getElementById('local-video');
+  var canvas = document.getElementById('snap-canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  var dataURL = canvas.toDataURL('image/jpeg', 0.8);
+  if (dc && dc.readyState === 'open') {
+    dc.send(JSON.stringify({type: 'camera-frame', data: dataURL}));
+  }
+}
+
+// Start sending camera frames periodically
+var cameraInterval;
+function startCameraShare() {
+  if (cameraInterval) clearInterval(cameraInterval);
+  cameraInterval = setInterval(sendCameraFrame, 100); // Send frame every 100ms
+}
+
+function stopCameraShare() {
+  if (cameraInterval) clearInterval(cameraInterval);
+}
+
+// Snapshot: save current displayed frame
+$('#snap-btn').click(function() {
+  var canvas = document.getElementById('remote-video');
+  var dataURL = canvas.toDataURL('image/png');
+  $('#snap-img').attr('src', dataURL).show();
+});
 
 var sendMSG = function() {
   var value = $("#msg").val();
@@ -57,7 +146,7 @@ var sendMSG = function() {
     addMSG(value, "me");
     $("#msg").val('');
   }
-}
+};
 
 var addMSG = function(msg, who) {
   var wrap = $("<div>").addClass("wrap").appendTo($("#chat-screen"));
@@ -65,10 +154,10 @@ var addMSG = function(msg, who) {
   $("<span>").html(who).addClass("who").appendTo(div);
   $("<span>").html(msg).addClass("msg").appendTo(div);
   $("#chat-screen-wp").scrollTop($("#chat-screen").height());
-}
+};
 
 $("#create").click(createAnswerSDP);
-$("#msg").keypress(function(e) {if(e.which == 13) {sendMSG()}});
+$("#msg").keypress(function(e) { if (e.which == 13) { sendMSG(); } });
 $("#send").click(sendMSG);
 </script>
 </body>
